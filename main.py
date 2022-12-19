@@ -2,15 +2,11 @@ import os
 import json
 import random
 import copy
-import numpy as np
 import matplotlib.pyplot as plt
 
-
 class Game:
-
     def __init__(self, field=None):
         self.field = None
-
         if field:
             self.field = field
         else:
@@ -19,19 +15,20 @@ class Game:
     def start(self):
         self.field = [' '] * 9
 
-    def printField(self):
-        row = ''
+    def gameField(self):
+        row = ' '
         for i in range(len(self.field)):
             cell = self.field[i]
-            row += '['
+            row += '|'
             if cell != ' ':
                 row += cell
             else:
                 row += str(i + 1)
-            row += ']'
+            row += ''
             if (i % 3 == 2):
                 print(row)
-                row = ''
+                row = ' '
+
 
     def set(self, position, side):
         pos = int(position) - 1
@@ -46,8 +43,8 @@ class Game:
         return free
 
     def isDraw(self):
-        free = self.getFree();
-        return len(free) == 0;
+        free = self.getFree()
+        return len(free) == 0
 
     def isWin(self, side):
         for i in range(3):
@@ -58,7 +55,6 @@ class Game:
                     break
             if isW:
                 return isW
-
         for i in range(3):
             isW = True
             for j in range(3):
@@ -67,7 +63,6 @@ class Game:
                     break
             if isW:
                 return isW
-
         isW = True;
         for i in range(3):
             if self.field[i * 3 + i] != side:
@@ -76,20 +71,18 @@ class Game:
         if isW:
             return isW
 
-        isWi = True;
+        isW = True;
         for i in range(3):
             if self.field[(i * 3 + 2 - i)] != side:
                 isW = False
                 break
         if isW:
             return isW
-
         return False
 
     def getState(self, side):
         if side == 'x':
             return self.field
-
         newField = ''
         for i in range(len(self.field)):
             if self.field[i] == 'x':
@@ -98,8 +91,42 @@ class Game:
                 newField += 'x'
             else:
                 newField += self.field[i]
-
         return newField
+
+
+class AI:
+    def __init__(self):
+        self.table = {}
+        if os.path.isfile('./reawards.json'):
+            with open('reawards.json') as json_file:
+                self.table = json.load(json_file)
+
+    def getReward(self, state):
+        game = Game(state)
+
+        # если победи 1 игрок, то оценка состояния игры "1"
+        if game.isWin('x'):
+            return 1
+
+        # если победил 2 игрок, то оценка состояния игры "0"
+        if game.isWin('o'):
+            return 0
+
+        # смотрим ценность по таблице
+        strstate = ''.join(state)
+        if strstate in self.table.keys():
+            return self.table[strstate]
+        # если в таблице нет, то считаем начальной ценностью "0.5"
+        return 0.5
+
+    def correct(self, state, newReward):
+        oldReward = self.getReward(state)
+        strstate = ''.join(state)
+        self.table[strstate] = oldReward + 0.1 * (newReward - oldReward)
+
+    def save(self):
+        with open('reawards.json', 'w') as outfile:
+            json.dump(self.table, outfile)
 
 
 class AIPlayer:
@@ -113,21 +140,19 @@ class AIPlayer:
         return self.side
 
     def makeStep(self, game):
-        #получаем список доступных ходов
+        # получаем список доступных ходов
         free = game.getFree()
 
-        #решаем, является ли текущий ход
-        #зондирующим (случайным) или жадным (максимально выгодным)
-
+        # решаем, является ли текущий ход случайным или жадным (максимально выгодным)
         if not self.isGreedy:
-            if ((random.randint(0,100)) < 30):
-                #случайный ход
-                step = random.choice(free)
-                game.set(step, self.side)
-                self.oldState = game.getState(self.side)
-                return step
+            # случайный ход
+            print('Random step')
+            step = random.choice(free)
+            game.set(step, self.side)
+            self.oldState = game.getState(self.side)
+            return step
 
-        #жадный ход
+        # жадный ход
         rewards = {}
         for step in free:
             # для каждого доступного хода оцениваем состояние игры после него
@@ -135,13 +160,13 @@ class AIPlayer:
             newGame.set(step, self.side)
             rewards[step] = self.ai.getReward(newGame.getState(self.side))
 
-        #выясняем, какое вознаграждение оказалось максимальным
+        # выясняем, какое вознаграждение оказалось максимальным
         maxReward = 0
         for reward in rewards.values():
             if reward > maxReward:
                 maxReward = reward
 
-        #находим все шаги с максимальным вознаграждением
+        # находим все шаги с максимальным вознаграждением
         steps = []
 
         for step in rewards:
@@ -149,224 +174,100 @@ class AIPlayer:
             if (maxReward > (reward - 0.01)) and (maxReward < (reward + 0.01)):
                 steps.append(step)
 
-        #корректируем оценку прошлого состояния
-        #с учетом ценности нового состояния
+        # корректируем оценку прошлого состояния с учетом ценности нового состояния
         if (self.oldState):
             self.ai.correct(self.oldState, maxReward)
 
-        #выбираем ход из ходов с максимальный вознаграждением
+        # выбираем ход из ходов с максимальный вознаграждением
         step = random.choice(steps)
         game.set(step, self.side)
 
-        #сохраняем текущее состояние для того,
-        #чтобы откорректировать её ценность на следующем ходе
+        # сохраняем текущее состояние для того,
+        # чтобы откорректировать её ценность на следующем ходе
         self.oldState = game.getState(self.side)
         return step
 
     def loose(self):
-        #корректируем ценность предыдущего состояния при проигрыше
+        # корректируем ценность предыдущего состояния при проигрыше
         if self.oldState:
             self.ai.correct(self.oldState, 0)
 
     def win(self):
-        #корректируем ценность предыдущего состояния при выигрыше
+        # корректируем ценность предыдущего состояния при выигрыше
         if self.oldState:
             self.ai.correct(self.oldState, 1)
 
     def draw(self):
-        #корректируем ценность предыдущего состояния при ничьей
+        # корректируем ценность предыдущего состояния при ничьей
         if self.oldState:
             self.ai.correct(self.oldState, 0.5)
 
-def state_to_gmstate(state):
-    """
-    Переводим состояние игры из формата массива в формат строки,
-    который используется игрой
-    """
-    gmstate = []
-    for row in state:
-        for ch in row:
-            if ch == -1:
-                gmstate.append(' ')
-            elif ch == 1:
-                gmstate.append('x')
-            else:
-                gmstate.append('o')
-    return gmstate
 
-def gmstep_to_step(step):
-    """
-    Переводим обозначение хода из принятого в игре
-    в формат который ожидается на выходе агента
-    """
-    steps = {
-        1:(1,1),
-        2:(1,2),
-        3:(1,3),
-        4:(2,1),
-        5:(2,2),
-        6:(2,3),
-        7:(3,1),
-        8:(3,2),
-        9:(3,3),
-    }
-    return (steps[step][0]-1,steps[step][1]-1)
+plt.figure(figsize=(20, 7))
+
+def graphic():
+    print('Первый игрок(x) победил :', countX, 'раз.' ,'\nВторой игрок(о) победил:', countO, 'раз.', '\nПобедила дружба:', countD, 'раз.')
+    plt.xlabel('Всего игр')
+    plt.ylabel('Победы')
+    plt.title('Зависимость побед от колличества игр')
+    plt.legend(['X', 'O', 'Н'], loc=2)
+    plt.grid(True)
+    plt.show()
 
 
+side = ' '
+ai = AI()
+gameCount = 1
 
+playerX = AIPlayer('x', ai, True)
+playerO = AIPlayer('o', ai, True)
+print('Введите кол-во игр:')
+gameCount = int(input())
 
-class AI:
+if (gameCount <= 0):
+    gameCount = 1
 
-    def __init__(self):
-        self.table = {}
-        if os.path.isfile('./rewards.json'):
-            with open('rewards.json', 'w') as json_file:
-                self.table = json.load(json_file)
-                print("loaded AI from rewards.json")
+game = Game()
 
-    def getReward(self, state):
-        game = Game(state)
+countX = 0
+countO = 0
+countD = 0
 
-        # если победитель - мы, то оценка состояния игры "1"
-        if game.isWin('x'):
-            return 1
-
-        # если победиль - соперник, то оценка состояния игры "0"
-        if game.isWin('o'):
-            return 0
-
-        # смотрим ценность по таблице
-        strstate = ''.join(state)
-        if strstate in self.table.keys():
-            return self.table[strstate]
-
-        # если в таблице нет, то считаем начальной ценностью "0.5"
-        return 0.5
-
-    def correct(self, state, newReward):
-        oldReward = self.getReward(state)
-        strstate = ''.join(state)
-        self.table[strstate] = oldReward + 0.1 * (newReward - oldReward)
-
-    def save(self):
-        with open('./rewards.json', 'w') as outfile:
-            json.dump(self.table, outfile)
-
-def get_AgentTicTacClass():
-    class AgentTicTacGreedyClass:
-        def __init__(self, is_zero):
-            # is_zero == True если нолик
-            self.player = None
-            ai = AI()
-            if is_zero:
-                self.player = AIPlayer('o', ai, True)
-            else:
-                self.player = AIPlayer('x', ai, True)
-
-        def get_action(self, state):
-            # пример state = [[1,0,1],[0,1,0],[0,1,0]] 1 - это крестик, 0 - это нолик, -1 - пусто
-            gmstate = state_to_gmstate(state)
-            game = Game(field=gmstate)
-            move = self.player.makeStep(game)
-            return gmstep_to_step(move)  # возвращаем координаты хода
-
-        def is_done(self, state, reward):
-            # reward - вознаграждение 1 если выиграли , вызывается когда игра закончена
-            gmstate = state_to_gmstate(state)
-            game = Game(field=gmstate)
-            return game.isWin(self.player.getSide())
-
-    return AgentTicTacGreedyClass
-
-
-AgentTicTacGreedy = get_AgentTicTacClass()
-
-
-def initfun(par1, is_zero):
-    # is_zero == True если нолик
-    par1.player = None
-    ai = AI()
-    if is_zero:
-        par1.player = AIPlayer('o', ai, False)
-    else:
-        par1.player = AIPlayer('x', ai, False)
-
-
-# Агент где есть случайный выбор хода
-AgentTicTacGreedyNew = get_AgentTicTacClass()
-AgentTicTacGreedyNew.__init__ = initfun
-#проверка победы
-def check_win(state, label):
-    for i in range(3):
-        if np.all(state[i,:] == int(label)):
-            return True
-        elif np.all(state[:,i] == int(label)):
-            return True
-    if np.all(np.fliplr(state).diagonal() == int(label)):
-        return True
-    if np.all(state.diagonal() == int(label)):
-        return True
-    return False
-#проведение 1 раунда
-def two_came_in_one_came_out(agent_zeros, agent_ones, print_state = False):
-    state = (np.zeros((3,3))-1).astype('int')
-    while -1 in state:
-        #ход креста
-        state[agent_ones.get_action(state)] = 1
-        if print_state:
-            print(state)
-            print()
-        if check_win(state, 1):
-            agent_ones.is_done(state, True)
-            agent_zeros.is_done(state, False)
-            return 1
-        if not(-1 in state):
+for i in range(gameCount):
+    print('Игра №', i + 1)
+    game.start()
+    while (True):
+        if game.isDraw():
+            playerX.draw()
+            playerO.draw()
+            countD += 1
             break
-        state[agent_zeros.get_action(state)] = 0
-        if print_state:
-            print(state)
-            print()
-        if check_win(state, 0):
-            agent_ones.is_done(state, False)
-            agent_zeros.is_done(state, True)
-            return 0
-    agent_ones.is_done(state, False)
-    agent_zeros.is_done(state, False)
-    return -1
 
+        playerX.makeStep(game)
+        if game.isWin(playerX.getSide()):
+            playerX.win()
+            playerO.loose()
+            countX += 1
+            break
 
+        if game.isDraw():
+            playerX.draw()
+            playerO.draw()
+            countD += 1
+            break
 
+        field = playerO.makeStep(game)
+        if game.isWin(playerO.getSide()):
+            playerO.win()
+            playerX.loose()
+            countO += 1
+            break
 
+    game.gameField()
 
-def play(zeros_class, ones_class, rng=5, gmscnt=500):
+    lines = plt.plot(i, countX, 'o-r', alpha=1, lw=2, marker = 'x', color='b', mew=1, ms=1)
+    lines = plt.plot(i, countO, 'o-r', alpha=1, lw=2, color='g',markerfacecolor='w', mew=1, ms=1)
+    lines = plt.plot(i, countD, 'o-r', alpha=1, lw=2, marker = '|', color='r', mew=1, ms=1)
 
-    def graphic():
-        plt.xlabel('Проведено игр')
-        plt.ylabel('Победы')
-        plt.title('График зависимости побед от общего кол-ва игр')
-        plt.legend(['X', 'O', 'D'], loc=2)
-        plt.grid(True)
-        plt.show()
-
-    a = [list]
-    #countX = a[0]
-    #countO = a[1]
-    #countD = a[2]
-    #1 - победа креста, 0 - победа нуля, -1 - ничья
-    for _ in range(rng):
-        a = [0, 0, 0]
-        zeros = zeros_class(True)
-        ones = ones_class(False)
-        for i in range(gmscnt):
-            a[two_came_in_one_came_out(zeros, ones, print_state = False)] += 1
-
-        #plt.plot(i in range, a[0])
-        print(a)
-
-
-    #plt.plot(rng, countO, 'o-r', alpha=1, lw=2, color='g', mew=1, ms=1)
-    #plt.plot(rng, countD, 'o-r', alpha=1, lw=2, color='b', mew=1, ms=1)
-    graphic()
-
-
-play(AgentTicTacGreedy, AgentTicTacGreedyNew)
+ai.save()
+graphic()
